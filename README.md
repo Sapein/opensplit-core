@@ -2,12 +2,17 @@ opensplit-core
 ==============
    opensplit-core is the core library for the OpenSplit program, and anyone else wanting to use OpenSplit functionality.
 
-
 ### Features
 [TO BE WRITTEN]
 
 ### Requirements
-1. livesplit-core
+1. [livesplit-core](https://github.com/LiveSplit/livesplit-core)
+2. [Brad Conte's Crypto Algoritms](https://github.com/B-Con/crypto-algorithms)
+
+### How-To Build
+1. Clone the repository with `git clone https://github.com/Sapein/opensplit-core.git1
+2. Setup livesplit-core.
+3. Install Brad Conte's Crypto Algorithms (use the clone_dependencies.sh script or just clone it into opensplit-core/deps/crypto-algorithms)
 
 ### Development Setup
 [TO BE WRITTEN]
@@ -30,3 +35,6 @@ opensplit-core
 
 #### Do you plan to eventually move entirely to livesplit-core?  
    Potentially, however I do eventually plan to move away from livesplit-core, and only really rely on it for comptability with LiveSplit.
+
+#### Why do you use an insecure Crypto library?  
+   Because I don't actually use it for the actual cryptography part, I just use it for the base64 portion of it. I would include it directly, or use a submodule, however due to the lack of actual license, I've decided it best to wait until I can either get a license from the Author, or just end up writing one on my own. However for the time being that library works.
