@@ -10,7 +10,7 @@ opensplit-core
 2. [Brad Conte's Crypto Algoritms](https://github.com/B-Con/crypto-algorithms)
 
 ### How-To Build
-1. Clone the repository with `git clone https://github.com/Sapein/opensplit-core.git1
+1. Clone the repository with `git clone https://github.com/Sapein/opensplit-core.git`
 2. Setup livesplit-core.
 3. Install Brad Conte's Crypto Algorithms (use the clone_dependencies.sh script or just clone it into opensplit-core/deps/crypto-algorithms)
 
