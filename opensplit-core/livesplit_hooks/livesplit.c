@@ -32,7 +32,6 @@ struct decoded_image * OpenSplit_Core_Get_LiveSplit_Icon(RunRef Loaded_Run, size
   image = (struct decoded_image *)malloc(sizeof(struct decoded_image) * actual_size_decoded);
   image->image = decoded_icon;
   image->approximate_size = actual_size_decoded;
-  printf("Actual Size Decoded: %ld\n", actual_size_decoded);
 
   return image;
 }
