@@ -1,8 +1,9 @@
 .POSIX:
 .SUFFIXES:
 CC = gcc
-CFLAGS = -Wall -Wpedantic -Wextra -O -D_XOPEN_SOURCE=700 -fpic
+CFLAGS = -Wall -Wpedantic -Wextra -O0 -D_XOPEN_SOURCE=700 -fpic
 LDLIBS = -lm -llivesplit_core
+LDCHECKFLAGS = -g
 LDFLAGS = -g -shared
 PREFIX = /usr/local
 LIBFOLDER = opensplit_core
@@ -14,7 +15,7 @@ opensplit_core: opensplit-core/deps/crypto-algorithms/base64.o opensplit-core/li
 	$(CC) $(LDFLAGS) opensplit_core.o livesplit.o base64.o -o $(OUTPUT) $(LDLIBS)
 
 check: tests/test_core.o opensplit-core/deps/crypto-algorithms/base64.o opensplit-core/livesplit_hooks/livesplit.o opensplit-core/opensplit_core.o
-	$(CC) $(LDFLAGS)  opensplit_core.o livesplit.o base64.o test_core.o -o TEST_$(OUTPUT) $(LDLIBS) -lcriterion
+	$(CC) $(LDCHECKFLAGS) opensplit_core.o livesplit.o base64.o test_core.o -o TEST_$(OUTPUT) $(LDLIBS) -lcriterion
 	./TEST_$(OUTPUT)
 
 
