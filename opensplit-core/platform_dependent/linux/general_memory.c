@@ -1,4 +1,4 @@
-/* #if defined(__linux__) && ((__GNUC__ > 3 || __GNUC__ == 3) && __GNUC__MINOR__ > 1) */
+#if defined(__linux__) && ((__GNUC__ > 2 || (__GNUC__ == 2 && __GNUC__MINOR__ > 15)))
 #define _GNU_SOURCE
 #include <string.h>
 #include <stdint.h>
@@ -13,7 +13,7 @@
 enum Core_Memory_errors OpenSplit_Core_Memory_Error = 0;
 
 /* This is a bit hacky, but should work. Probaby should refactor in the future */
-/* This also has some eror checking, but it may not be comprehensive */
+/* This also has some error checking, but it may not be comprehensive */
 pid_t pidof(char *process_name){
   int i = 0;
   unsigned short int alloc_failures = 0;
@@ -46,9 +46,9 @@ pid_t pidof(char *process_name){
 	goto get_pid_alloc_fail;
       }
       location_name = malloc(strlen("/proc/") + (sizeof(char) * process_number) +
-			     strlen("/cmdline") + 2);
+			     strlen("/stat") + 2);
       if(location_name != NULL){
-	sprintf(location_name, "/proc/%ld/cmdline", process_number);
+	sprintf(location_name, "/proc/%ld/stat", process_number);
 
 	proc_status_file = fopen(location_name, "r");
 	if(proc_status_file != NULL){
@@ -111,4 +111,4 @@ unsigned long int get_maximum_count(void){
   }
   return maximum_pid;
 }
-/* #endif */
+#endif
