@@ -16,8 +16,9 @@ license="MIT/Expat (LICENSE)"
 # NON POSIX-COMPILANT BASH-ISM BELOW
 # REPLACE ASAP
 authors=("Chanku/Sapein") #Add a ", " before your name
-options=("help" "silent" "musl" "posix" "no_scan" "autoinst" "install" "lib" "include" "c89_compat" "livesplit" "os")
+options=("help" "silent" "musl" "posix" "no_scan" "autoinst" "install" "lib" "include" "libc" "c89_compat" "livesplit" "os")
 compilers=("gcc" "clang" "tcc" "msvc" "cc")
+implemented="(Not Implemented)"
 # REPLACE ASAP
 # NON POSIX-COMPILANT BASH-ISM ABOVE
 
@@ -33,6 +34,7 @@ INSTALL_DIR="/usr/local/" #/usr/local/ by default
 COMPAT_MODE="static_core" #static livesplit_core by default
 LIB_DIR="${INSTALL_DIR}/lib/" #/usr/local/lib/ by default
 INCLUDES_DIR="${INSTALL_DIR}/include/" #/usr/local/include by default
+LIBC="auto"
 
 INTERFACE_MODE=Auto #Autodetect by default.
 LIBC=glibc #Assume glibc by default
@@ -80,7 +82,7 @@ function help_func {
             printf " --use_musl_gcc,: If this is used, switch to musl-gcc and include comptability options\n"
             ;;
         c89_compat|--c89_compat|-c89)
-            printf " --c89_compat, -c89: Compiles using the c89 standard C library with custom implementations of"
+            printf " --c89_compat, -c89: Compiles using the c89 standard with custom implementations of"
             printf " C99/C11 features where possible. (Disables Autodetection of C99/C11 compatibility) \n"
             ;;
         posix|--posix_only|-p)
@@ -126,6 +128,9 @@ function help_func {
             printf "   - osx: use osx-specific compile options. \n"
             printf "   - unix: use generic unix compile options that attempt to work on your system.\n"
             printf "   - windows: use windows-specific compile options. I'm unsure why you would use this though...\n\n"
+            ;;
+        libc|--libc=[a-zA-Z0-9]*)
+            printf " --libc=(glibc/gnu, musl, bsd, win): sets a standard c library (libc) to use. (Disables Autodetection) ${implemented}\n"
             ;;
     esac
 }
@@ -190,6 +195,8 @@ function command_line_parse {
                 INTERFACE_MODE="${arg:3}"
                 printf "$INTERFACE_MODE\n"
                 ;;
+            --libc=[a-z]*)
+                LIBC="${arg:7}"
         esac
 
         i=$(($i + 1))
@@ -198,20 +205,25 @@ function command_line_parse {
 
 function check_libc {
     printf "Checking libc ....."
-    if [ -d "${1}"[[:alnum:]]*-${2}-gnu ]
+    if [ -d "${LIB_LOCATION_BASE}"[[:alnum:]]*-${1}-gnu ]
     then
+        printf " found!\n"
         libc=glibc
-    elif [ -d "${1}"[[:alnum:]]*-${2}-musl ]
+    elif [ -d "${LIB_LOCATION_BASE}"[[:alnum:]]*-${1}-musl ]
     then
+        printf " found!\n"
         libc=musl
+    else
+        printf " Not Found?!\n"
+        libc=NONE
     fi
-    printf " found!\n"
-    printf "libc: ${libc}"
+    printf "libc: ${libc}\n"
+    LIBC="$libc"
 }
 
 function find_c_compiler {
     printf "Finding cc ..... \r"
-    which cc > /dev/null 2>&1
+    which cc > /dev/null 2&>1
     if [ "$?" -eq 1 ]
     then
         printf "Somehow cc doesn't exist on your system....how?\n"
@@ -239,7 +251,6 @@ function find_c_compiler {
             printf "Aborting!\n"
             exit 1
         fi
-
     elif [ "$?" -eq 0 ]
     then
         printf "Found CC! checking if it's a symlink .... \n"
@@ -312,12 +323,14 @@ function check_musl_version {
 function find_std_libs {
     # Work on this later, use the compiler as found in find_c_compiler
     true; truev="$?"
-    $is_linux=$1
+    is_linux=1
     case $libc in
         glibc)
             0
             ;;
         musl)
+            0
+            #TODO find a better section to put he following
             #Check if linux to run musl version check
             if [ "$is_linux" -eq "$truev" ]
             then
@@ -350,10 +363,17 @@ function check_system {
 
             # This is literally just checking if process_vm_readv support exists with musl's libc
             find_c_compiler
-            check_libc ${LIB_LOCATION_BASE} ${linux}
-            true; find_std_libs "$?"
+            if [ ${LIBC} == "auto" ]
+            then
+                lower_linux=$(echo ${linux} | tr '[:upper:]' '[:lower:]')
+                check_libc "${lower_linux}"
+                true; find_std_libs "$?"
+            fi
+            libc="${LIBC}"
         fi
+        INTERFACE_MODE="${linux}"
     else
+        #Check for other systems
         false
     fi
     printf ""
@@ -362,7 +382,7 @@ function check_system {
 command_line_parse "$@"
 
 # AUTODETECT MODE BEGIN
-if [ "$INTERFACE_MODE" == "auto" ]
+if [ "$INTERFACE_MODE" == "Auto" ]
 then
     # Autodetect which mode to use
     check_system
@@ -371,17 +391,24 @@ fi
 
 case $INTERFACE_MODE in
     Linux)
+        # . ".configure_linux"
         ;;
     Windows)
+        # . ".configure_windows"
         ;;
     OSX)
+        # . ".configure_osx"
         ;;
     FreeBSD)
+        # . ".configure_bsd"
         ;;
     nixen)
+        # . ".configure_nixen"
         ;;
     POSIX)
+        # . ".configure_posix"
         ;;
     Auto)
+        printf "There was an error in determining your Operating System. Please use --os_type=<os> or -o=<os>!\n"
         ;;
 esac
