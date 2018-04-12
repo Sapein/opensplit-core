@@ -323,7 +323,7 @@ function check_musl_version {
 function find_std_libs {
     # Work on this later, use the compiler as found in find_c_compiler
     true; truev="$?"
-    is_linux=1
+    is_linux=$1
     case $libc in
         glibc)
             0
@@ -363,7 +363,7 @@ function check_system {
 
             # This is literally just checking if process_vm_readv support exists with musl's libc
             find_c_compiler
-            if [ ${LIBC} == "auto" ]
+            if [ ${LIBC} == "auto"]
             then
                 lower_linux=$(echo ${linux} | tr '[:upper:]' '[:lower:]')
                 check_libc "${lower_linux}"
