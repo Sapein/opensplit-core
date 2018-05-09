@@ -1,5 +1,8 @@
-#!/bin/bash
-#!/bin/dash
+#!/bin/sh
+
+set -eu
+IFS_DEFAULT=$(printf '\n\t')
+IFS=$IFS_DEFAULT
 
 ########################### # Custom Configure Script
 #   This is a custom configure script I wrote because I enjoy torturing myself.
@@ -9,146 +12,178 @@
 #  As multiplatform compatibility is a must, I've tried to keep it maintainable and also extensible,
 #   this way I can add new platforms without having to add too too much glue or mess with internals.
 ###########################
+slice_output=""
 LIB_LOCATION_BASE="/lib/"
 version="1.0.0"
 license="MIT/Expat (LICENSE)"
 
-# NON POSIX-COMPILANT BASH-ISM BELOW
-# REPLACE ASAP
-authors=("Chanku/Sapein") #Add a ", " before your name
-options=("help" "silent" "musl" "posix" "no_scan" "autoinst" "install" "lib" "include" "libc" "c89_compat" "livesplit" "os")
-compilers=("gcc" "clang" "tcc" "msvc" "cc")
-implemented="(Not Implemented)"
-# REPLACE ASAP
-# NON POSIX-COMPILANT BASH-ISM ABOVE
+authors="Chanku/Sapein" #Add in a comma in the string (an example: "Chanku/Sapein, Author 2, Author 69")
+options="help silent musl test posix autoinst install lib include libc c89_compat livesplit os"
+compilers="gcc clang cc"
 
+implemented="(Not Implemented)"
+implemented_osc="$implemented"
+implemented_osn="$implemented"
+implemented_libc="$implemented"
+
+SLD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+SLIBRARY_PATH="${LIBRARY_PATH:-}"
+SC_INCLUDE_PATH="${C_INCLUDE_PATH:-}"
+STDLIBS="stdio stdbool string strings stdlib stddef stdint"
+OPTLIBS="criterion "
+REQLIBS="livesplit_core opensplit-core/deps/crypto-algorithms/base64"
+HAS_STRING_STD=2 #Default is unknown
 COMPILER=cc
 QUIET_MODE=1 #Off By Default
 C89_COMPAT=1 #Off by Default
 MUSL_GCC_COMPAT=1 #Off by default
 PROCESS_VM_READV=1 #Off by default
 
-LIB_SCAN=0 #On by Default
+# LIB_SCAN=0 #On by Default
 AUTO_INSTALL=1 #Off by default
 INSTALL_DIR="/usr/local/" #/usr/local/ by default
 COMPAT_MODE="static_core" #static livesplit_core by default
 LIB_DIR="${INSTALL_DIR}/lib/" #/usr/local/lib/ by default
 INCLUDES_DIR="${INSTALL_DIR}/include/" #/usr/local/include by default
+RUN_TESTS=0 #On by Default
+ARCH="i686"
 LIBC="auto"
 
+dl_prog="unknown" #Default to wget, I need to have an environment checking thing
+HAS_GIT=1 #Default has_get is set to False
+USE_GIT=1 #Default use_get is set to False, this determines if we should use git over dl_prog. 2 = use it for our own things
+livesplit_url="https://github.com/LiveSplit/livesplit-core/releases/download/v0.9.0/livesplit-core-v0.9.0-ARCH-OS-LIBC.tar.gzip"
+libraries_to_download=""
 INTERFACE_MODE=Auto #Autodetect by default.
-LIBC=glibc #Assume glibc by default
 
-function help_func {
+cleanup() {
+    printf "Cleanup\\n"
+    [ -f estatus ] && rm estatus
+    [ -f gcc_out ] && rm gcc_out
+}
+trap "cleanup" EXIT
+
+#$1 = String
+#$2 = offset
+#$3 = length
+#$4 = decrease length by
+slice_string() {
+    subtract="${4:-0}"
+    offset=$(($2+1))
+    length=$(($3-$subtract))
+    # shellcheck disable=SC2059
+    slice_output=$(printf "%s" "$1" | awk  '{ string=substr($0, '$offset', '$length'); print string; }' )
+}
+
+help_func() {
     # Standard Help
-    if [ "$1" == "N" ] || [ -z "$2" ]
+    if [ "$1" = "N" ] || [ -z "$2" ]
     then
-        printf "./configure - the configure script for opensplit-core\n"
-        printf "Version: 1.0.0\n"
-        printf "Author: "
-
-        # PRINT AUTHORS BEGIN (RELIES ON NON-POSIX BASHISMS)
-        for author in "${authors[@]}"
-        do
-            printf "$author "
-        done
-        printf "\n"
-        # PRINT AUTHORS END (RELIES ON NON-POSIX BASHISMS)
-
-        printf "License: ${license}\n"
-        printf "\n"
+        printf "./configure - the configure script for opensplit-core\\n"
+        printf "Version: %s\\n" "${version}"
+        printf "Authors: %s \\n" "${authors}"
+        printf "License: %s\\n" "${license}"
+        printf "\\n"
     fi
 
     case $1 in
         N)
-            # RECURSIVE FUNCTION BEGIN (RELIES ON NON-POSIX BASHISMS)
-            for option in "${options[@]}"
+            #FIELD SPLITTING WITH HACKS BEGIN
+            IFS=$(printf ' \n\t') #This temporarily changes IFS to allow it to field-split here
+            for option in ${options}
             do
-                if [ "$option" == "livesplit" ]
+                if [ "$option" = "livesplit" ]
                 then
                     printf "\\n"
                 fi
                 help_func "${option}" 1
             done
-            # RECURSIVE FUNCTION END (RELIES ON NON-POSIX BASHISMS)
+            IFS=$IFS_DEFAULT #This sets IFS back to the default
+            #FIELD SPLITTING WITH HACKS END
             ;;
         help|--help|-h)
-            printf " --help, -h: Displays the help menu\n"
+            printf " --help, -h: Displays the help menu\\n"
             ;;
         silent|--silent|-q)
-            printf " --silent, -q: silences 'checking...' output\n"
+            printf " --silent, -q: silences 'checking...' output\\n"
             ;;
         musl|--use_musl_gcc)
-            printf " --use_musl_gcc,: If this is used, switch to musl-gcc and include comptability options\n"
+            printf " --use_musl_gcc,: If this is used, switch to musl-gcc and include comptability options\\n"
             ;;
         c89_compat|--c89_compat|-c89)
             printf " --c89_compat, -c89: Compiles using the c89 standard with custom implementations of"
-            printf " C99/C11 features where possible. (Disables Autodetection of C99/C11 compatibility) \n"
+            printf " C99/C11 features where possible. \\n"
+            printf " \\t\\t      (Disables Autodetection of C99/C11 compat.)\\n"
+            printf " \\t\\t      (Disables testing.) \\n"
             ;;
         posix|--posix_only|-p)
-            printf " --posix_only, -p: Use only POSIX functionality. (Disables anything that uses non-posix behavior). \n"
+            printf " --posix_only, -p: Use only POSIX functionality. (Disables anything that uses non-posix behavior). \\n"
             ;;
         install|--install_dir=[a-zA-Z]*)
-            printf " --install_dir=<directory>: sets where make install installs opensplit-core (Default: /usr/local)\n"
+            printf " --install_dir=<directory>: sets where make install installs opensplit-core (Default: /usr/local)\\n"
             ;;
         lib|--lib_dir=[a-zA-Z]*)
             printf " --lib_dir=<directory>: sets where the *.so and *.a files are installed too, more fine grained than install_dir"
-            printf " (Default: /usr/local/lib)\n"
+            printf " (Default: /usr/local/lib)\\n"
             ;;
         include|--include_dir=[a-zA-Z]*)
             printf " --include_dir=<directory>: sets where the header files are installed too, more fine grained than install_dir"
-            printf " (Default: /usr/local/include)\n"
+            printf " (Default: /usr/local/include)\\n"
+            ;;
+        test|--disable_tests|-t)
+            printf " --disable_tests, -t: Disables testing unit testing after compiling, if possible. (Default) %s\\n" "$implemented"
             ;;
         no_scan|--no_lib_scan|-s)
-            printf " --no_lib_scan, -s: disables scanning for libraries\n"
+            printf " --no_lib_scan, -s: disables scanning for libraries\\n"
             ;;
         autoinst|--auto_install_deps)
-            printf " --auto_install_deps: automatically try to install or setup dependencies when possible\n"
+            printf " --auto_install_deps: automatically try to install or setup dependencies when possible\\n"
             ;;
         livesplit|--livesplit_compat=[-a-z]*|-l=[-a-z]*)
-            printf " LiveSplit compatibility switch:\n"
-            printf "  usage: --livesplit_compat=<mode> or -l=<mode>\n"
-            printf "  This sets the mode for compatibility modes for livesplit\n"
-            printf "  Options:\n"
-            printf "   - static_core: compile livesplit-core statically within opensplit-core (Default)\n"
-            printf "   - dyn_core: compile livesplit-core using dynamic libraries.\n"
-            printf "   - opensplit_custom: LiveSplit compatibility without using livesplit-core ${implemented}\n"
-            printf "   - none: exclude all LiveSplit compatibility and don't use livespit-core ${implemented}\n\n"
+            printf " LiveSplit compatibility switch:\\n"
+            printf "  usage: --livesplit_compat=<mode> or -l=<mode>\\n"
+            printf "  This sets the mode for compatibility modes for livesplit\\n"
+            printf "  Options:\\n"
+            printf "   - static_core: compile livesplit-core statically within opensplit-core (Default)\\n"
+            printf "   - dyn_core: compile livesplit-core using dynamic libraries.\\n"
+            printf "   - opensplit_custom: LiveSplit compatibility without using livesplit-core %s\\n" "$implemented_osc"
+            printf "   - none: exclude all LiveSplit compatibility and don't use livespit-core %s\\n\\n" "$implemented_osn"
             ;;
         os|--os_type=[a-z]*|-o=[a-z]*)
-            printf " operating system switch:\n"
-            printf "  usage: --os_type=<os> or -o=<os>\n"
+            printf " operating system switch:\\n"
+            printf "  usage: --os_type=<os> or -o=<os>\\n"
             printf "  This is important for os specific options (like the autosplitter)"
-            printf " .So please keep that in mind when using these options.\n"
-            printf "  Options:\n"
-            printf "   - auto: automagcially try and get the Operating System through checking the system (Default).\n"
-            printf "   - linux: use linux-specific compile options. This assumes Linux > 3.2\n"
-            printf "   - linux_old: use linux-specific compile options. This assumes Linux < 3.2\n"
-            printf "   - freebsd: use freebsd specific compile options.\n"
-            printf "   - osx: use osx-specific compile options. \n"
-            printf "   - unix: use generic unix compile options that attempt to work on your system.\n"
-            printf "   - windows: use windows-specific compile options. I'm unsure why you would use this though...\n\n"
+            printf " .So please keep that in mind when using these options.\\n"
+            printf "  Options:\\n"
+            printf "   - auto: automagcially try and get the Operating System through checking the system (Default).\\n"
+            printf "   - linux: use linux-specific compile options. This assumes Linux > 3.2\\n"
+            printf "   - linux_old: use linux-specific compile options. This assumes Linux < 3.2\\n"
+            printf "   - freebsd: use freebsd specific compile options.\\n"
+            printf "   - osx: use osx-specific compile options. \\n"
+            printf "   - unix: use generic unix compile options that attempt to work on your system.\\n"
+            printf "   - windows: use windows-specific compile options. I'm unsure why you would use this though...\\n\\n"
             ;;
         libc|--libc=[a-zA-Z0-9]*)
-            printf " --libc=(glibc/gnu, musl, bsd, win): sets a standard c library (libc) to use. (Disables Autodetection) ${implemented}\n"
+            printf " --libc=(auto, glibc/gnu, musl, bsd, win): sets a standard c library (libc) to use. "
+            printf "(Disables Autodetection) (Default: auto) %s\\n" "$implemented_libc"
             ;;
     esac
 }
 
-function command_line_parse {
+command_line_parse() {
     i=1
     for arg in "$@"
     do
-        if ( [ "$arg" == "--help" ] || [ "$arg" == "-h" ] ) &&  ( [ $i -eq 1 ] && [ ! -z "$2" ] )
+        if ( [ "$arg" = "--help" ] || [ "$arg" = "-h" ] ) &&  ( [ $i -eq 1 ] && [ ! -z "$2" ] )
         then
             help_func "$2" 1
             exit 0
-        elif ( [ "$arg" == "--help" ] || [ "$arg" == "-h" ] )
+        elif ( [ "$arg" = "--help" ] || [ "$arg" = "-h" ] )
         then
             help_func "N"
             exit 0
         fi
-        case $arg in
+        case "$arg" in
             --silent|-q)
                 QUIET_MODE=0
                 ;;
@@ -158,6 +193,10 @@ function command_line_parse {
             --posix_only|-p)
                 INTERFACE_MODE=posix
                 ;;
+            test|--disable_tests|-t)
+                RUN_TESTS=1
+                OPTLIBS="${OPTLIBS##criterion }"
+                ;;
             --no_lib_scan|-s)
                 LIB_SCAN=1
                 ;;
@@ -165,211 +204,551 @@ function command_line_parse {
                 AUTO_INSTALL=0
                 ;;
             --install_dir=[[:ascii:]]*)
-                INSTALL_DIR="${arg:14}"
-                printf "$INSTALL_DIR\n"
+                slice_string "$arg" 14 "${#arg}" 1
+                INSTALL_DIR="$slice_output"
+                printf "%s\\n" "$INSTALL_DIR"
                 ;;
             --lib_dir=[[:ascii:]]*)
-                LIB_DIR="${arg:10}"
-                printf "$LIB_DIR\n"
+                slice_string "$arg" 10 "${#arg}" 1
+                LIB_DIR="$slice_output"
+                printf "%s\\n" "$LIB_DIR"
                 ;;
             --includes_dir=[[:ascii:]]*)
-                INCLUDES_DIR="${arg:15}"
-                printf "$INCLUDES_DIR\n"
+                slice_string "$arg" 15 "${#arg}" 1
+                INCLUDES_DIR="$slice_output"
+                printf "%s\\n" "$INCLUDES_DIR"
                 ;;
             --c89_compat|-c89)
-                C89_COMPAT=1
+                C89_COMPAT=0
+                RUN_TESTS=1
+                OPTLIBS="${OPTLIBS##criterion }"
                 ;;
             --livesplit_compat=[-a-z_]*)
-                COMPAT_MODE="${arg:19}"
-                printf "$COMPAT_MODE\n"
+                slice_string "$arg" 19 "${#arg}" 1
+                COMPAT_MODE="$slice_output"
+                printf "%s\\n" "$COMPAT_MODE"
                 ;;
             -l=[-a-z]*)
-                COMPAT_MODE="${arg:3}"
-                printf "$COMPAT_MODE\n"
+                slice_string "$arg" 3 "${#arg}" 1
+                COMPAT_MODE="$slice_output"
+                printf "%s\\n" "$COMPAT_MODE"
                 ;;
             --os_type=[-a-z]*)
-                INTERFACE_MODE="${arg:10}"
-                printf "$INTERFACE_MODE\n"
+                slice_string "$arg" 10 "${#arg}" 1
+                INTERFACE_MODE="$slice_output"
+                printf "%s\\n" "$INTERFACE_MODE\\n"
                 ;;
             -o=[-a-z]*)
-                INTERFACE_MODE="${arg:3}"
-                printf "$INTERFACE_MODE\n"
+                slice_string "$arg" 3 "${#arg}" 1
+                INTERFACE_MODE="$slice_output"
+                printf "%s\\n" "$INTERFACE_MODE"
                 ;;
             --libc=[a-z]*)
-                LIBC="${arg:7}"
+                slice_string "$arg" 7 "${#arg}" 1
+                LIBC="$slice_output"
         esac
 
         i=$(($i + 1))
     done
 }
 
-function check_libc {
+check_musl_version() {
+    os=$1
+    printf "Checking musl libc version ...... \\r"
+    libc_location="${LIB_LOCATION_BASE}/[[:alnum:]]*-$os-musl/libc.so"
+    libc_location=$(printf ${libc_location})
+    libc=$("$libc_location" > musl_ver 2>&1 ; \
+           grep "Version" musl_ver | sed --posix s/'Version '// ; rm musl_ver)
+
+    slice_output="."
+    slice_string "$libc" 0 1 0
+    musl_major=$slice_output
+
+    slice_output="."
+    slice_string "$libc" 2 1 0
+    musl_minor=$slice_output
+
+    slice_output="."
+    slice_string "$libc" 4 1 0
+    musl_patch=$slice_output
+    if [ "$musl_major" -gt 0 ] || ( [ "$musl_major" -eq 0 ] && ( [ "$musl_minor" -gt 9 ] || \
+                                                                 ( [ "$musl_minor" -eq 9 ] && \
+                                                                   ( [ "$musl_patch" -gt 3 ] || \
+                                                                     [ "$musl_patch" -eq 3 ] ))))
+    then
+        printf "musl libc version: %s\\n" "$libc"
+        printf "process_vm_readv support found!\\n"
+        PROCESS_VM_READV=0
+    else
+        printf "musl libc version: %s\\n" "$libc"
+        printf "process_vm_readv support status is unknown!!\\n"
+        PROCESS_VM_READV=1
+    fi
+}
+
+check_libc() {
     printf "Checking libc ....."
-    if [ -d "${LIB_LOCATION_BASE}"[[:alnum:]]*-${1}-gnu ]
+
+    # Setup for globbing BEGIN
+    gnu_loc="${LIB_LOCATION_BASE}[[:alnum:]]*-${1}-gnu"
+    gnu_loc=$(printf ${gnu_loc})
+    musl_loc="${LIB_LOCATION_BASE}[[:alnum:]]*-${1}-musl"
+    musl_loc=$(printf ${musl_loc})
+    # Setup for globbing END
+
+    if [ -d "${gnu_loc}" ]
     then
-        printf " found!\n"
+        printf " found!\\n"
         libc=glibc
-    elif [ -d "${LIB_LOCATION_BASE}"[[:alnum:]]*-${1}-musl ]
+    elif [ -d  "${musl_loc}" ]
     then
-        printf " found!\n"
+        printf " found!\\n"
+        if [ "$PROCESS_VM_READV" -eq 2 ] && [ "$1" = "linux" ]
+        then
+            check_musl_version "$1"
+        fi
         libc=musl
     else
-        printf " Not Found?!\n"
+        printf " Not Found?! (Your system may have a BSD/win libc which isn't checked for yet)\\n"
         libc=NONE
     fi
-    printf "libc: ${libc}\n"
+    printf "libc: %s\\n" "${libc}"
     LIBC="$libc"
 }
 
-function find_c_compiler {
-    printf "Finding cc ..... \r"
-    which cc > /dev/null 2&>1
-    if [ "$?" -eq 1 ]
+find_c_compiler() {
+    printf "Finding cc ..... \\r"
+    if ( ! command -v cc > /dev/null 2>&1 )
     then
-        printf "Somehow cc doesn't exist on your system....how?\n"
+        printf "Somehow cc doesn't exist on your system....how?\\n"
         #cc doesn't exist
-        printf "Searching for compilers ..... \r"
-        # COMPILER_SEARCH BEGINS (RELIES ON NON-POSIX BASHISMS)
-        for compiler in "${compilers[@]}"
+        printf "Searching for compilers ..... \\r"
+        # COMPILER_SEARCH BEGINS
+        IFS=$(printf ' \n\t')
+        for compiler in ${compilers}
         do
-            printf "Searching for compilers ..... ${compiler}\r"
-            which "$compiler" > /dev/null 2>&1
-            if [ "$?" -eq 0 ]
+            printf "Searching for compilers ..... %s\\r" "${compiler}"
+            if command -v "$compiler" > /dev/null 2>&1
             then
-                printf "\n"
-                printf "compiler found! using $compiler !\n"
+                printf "\\n"
+                printf "compiler found! using %s !\\n" "${compiler}"
                 COMPILER="$compiler"
                 break
             fi
         done
-        # COMPILER_SEARCH ENDS (RELIES ON NON-POSIX BASHISMS)
+        IFS=IFS_DEFAULT
+        # COMPILER_SEARCH ENDS
 
-        if [ "$compiler" == "cc" ]
+        if [ "$compiler" = "cc" ]
         then
-            printf "You don't seem to have a compiler for C at all....\n"
-            printf "How do you live? How did you expect to compile a C program?\n"
-            printf "Aborting!\n"
+            printf "You don't seem to have a compiler for C at all....\\n"
+            printf "How do you live? How did you expect to compile a C program?\\n"
+            printf "Please install a supported compiler and try again\\n"
+            printf "Supported Compilers: %s\\n" "${compilers}"
+            printf "Aborting!\\n"
             exit 1
         fi
-    elif [ "$?" -eq 0 ]
+    elif command -v cc > /dev/null 2>&1
     then
-        printf "Found CC! checking if it's a symlink .... \n"
-        true_cc=$(which cc)
-        true_cc_2=$(echo ${true_cc} | sed --posix 's/"->"//')
+        printf "Found CC! checking if it's a symlink .... \\n"
+        true_cc=$(command -v cc)
+        true_cc_2=$(echo "${true_cc}" | sed --posix 's/"->"//')
         # Checks if CC is a symlink
         if [ "$true_cc" = "$true_cc_2" ]
         then
-            printf "Found CC! It is a symlink! Resolving symlink. \n"
+            printf "Found CC! It is a symlink! Resolving symlink. \\n"
             continue_loop=0
             # Resolves the symlink
-            while [ continue_loop -eq 0 ]
+            while [ "$continue_loop" -eq 0 ]
             do
-                true_cc_listing=$(ls -l ${true_cc})
-                true_cc=$(echo "${true_cc_listing}" | sed --posix 's/[a-zA-Z0-9" "/]* ->//')
-                check_if_base=$(echo "${true_cc}" sed --posix 's/"->"//')
-                if [ "$check_if_base" == "$true_cc" ]
+                true_cc=$(echo "${true_cc}" | sed s/" "//)
+                true_cc_listing=$(ls -l "${true_cc}")
+                true_cc=$(echo "${true_cc_listing}" | sed --posix 's/[-a-zA-Z0-9" "/:]* ->//g')
+                set +e
+                echo "${true_cc}" | grep -- "/" > /dev/null
+                if [ $? -eq 1 ]
                 then
-                    printf "Finally! Your compiler is ${true_cc}!\n"
+                    true_cc=$(echo "${true_cc}" | sed s/" "//)
+                    true_cc=$(command -v "${true_cc}")
+                    true_cc_listing="a->"
+                fi
+                set -e
+                set +e
+                echo "${true_cc_listing}" | grep -- "->" > /dev/null
+                if [ $? -eq 1 ]
+                then
+                    printf "Finally! Your compiler is %s!\\n" "${true_cc}"
 
-                    # COMPILER GET BEGINS (RELIES ON NON-POSIX BASHISMS)
-                    printf "Stripping ${true_cc} down to it's raw command!\r"
+                    printf "Stripping %s down to it's raw command!\\r" "${true_cc}"
+
+                    # COMPILER GET BEGINS
                     old_cc="${true_cc}"
-                    for compiler in "${compilers[@]}"
+                    IFS=$(printf ' \n\t') #MAKE SURE THAT IFS is set for this properly
+                    for compiler in ${compilers}
                     do
                         true_cc=$(echo "${true_cc}" | sed "s/${compiler}//" | \
                                   sed s/--[[:digit:]]/-/ > sedout ; a=$(cat sedout) ; \
                                   echo "${true_cc}" | sed "s,$a,," | sed "s/-[[:digit:]]//"; rm sedout)
-                        if [ "$true_cc" == "$compiler" ]
+                        if [ "$true_cc" = "$compiler" ]
                         then
-                            printf "Success! ${old_cc} stripped down to ${true_cc}!!\n"
+                            # sed s?[/a-zA-Z0-9]*[/]??
+                            printf "Success! %s stripped down to %s!!      \\n" "$old_cc" "$true_cc"
+                            set +e
+                            if arch
+                            then
+                                ARCH=$(arch)
+                            else
+                                narch=$(echo "$old_cc" | sed 's?[-_/a-zA-Z0-9]*[/]??' > sedout ; a=$(cat sedout) ; \
+                                        echo "$a" | sed 's?[a-z0-9_]*??' > sedout ; b=$(cat sedout) ; \
+                                        echo "$a" | sed "s,$b,,"; rm sedout)
+                                ARCH="$narch"
+                            fi
                             break
                         else
                             true_cc="${old_cc}"
                         fi
                     done
+                    IFS=IFS_DEFAULT #MAKE SURE THAT IFS IS PROPERLY RESET
                     # COMPILER GET ENDS (RELIES ON NON-POSIX BASHISMS)
-                    if [ "$true_cc" == "$old_cc" ]
+                    if [ "$true_cc" = "$old_cc" ]
                     then
-                        printf "FAILURE! ${old_cc} was unable to be stripped! See for yourself ${true_cc}\n"
-                        printf "Falling back to just using cc!\n"
+                        printf "FAILURE! %s was unable to be stripped! See for yourself %s\\n" "$old_cc" "$true_cc"
+                        printf "Falling back to just using cc!\\n"
                         COMPILER="cc"
                     else
                         COMPILER="$true_cc"
                     fi
                     continue_loop=1
                 fi
+                set -e
             done
         else
-            printf "Found CC! It is not a symlink! Using cc as the compiler!\n"
+            printf "Found CC! It is not a symlink! Using cc as the compiler, albeit assuming it's like gcc!\\n"
         fi
     fi
 }
 
-function check_musl_version {
-    printf "Checking musl libc version ...... \r"
-    libc=$("${LIB_LOCATION_BASE}"/[[:alnum:]]*-linux-musl/libc.so > musl_ver 2&>1 ; \
-        grep "Version" musl_ver | sed --posix s/'Version '// ; rm musl_ver)
-    if [ "${libc:0:1}" -gt 0 ] || ( [ "${libc:0:1}" -eq 0 ] && ( [ "${libc:2:1}" -gt 9 ] || \
-                                                                 ( [ "${libc:2:1}" -eq 9 ] && \
-                                                                   ( [ "${libc:4:1}" -gt 3 ] || \
-                                                                     [ "${libc:4:1}" -eq 3 ] ))))
-    then
-        printf "musl libc version: ${libc}\n"
-        printf "process_vm_readv support found!\n"
-        PROCESS_VM_READV=0
-    fi
+criterion_compiler_gcc()  {
+    test_to_check=${1:-}
+    gcc_flags="-x c -H -fsyntax-only -lcriterion -"
+    test_var="#include \"criterion/${test_to_check}.h\""
+    printf "%s" "$test_var" | gcc $gcc_flags >> gcc_out 2>&1 ; printf "%s" "$?" > estatus;
+    exit_status=$(cat estatus)
+    return "$exit_status"
 }
 
-function find_std_libs {
-    # Work on this later, use the compiler as found in find_c_compiler
-    true; truev="$?"
-    is_linux=$1
-    case $libc in
-        glibc)
-            0
-            ;;
-        musl)
-            0
-            #TODO find a better section to put he following
-            #Check if linux to run musl version check
-            if [ "$is_linux" -eq "$truev" ]
+optlibs_compiler_gcc() {
+    test_to_check=${1:-}
+    gcc_flags="-x c -H -fsyntax-only -"
+    test_var="#include \"${test_to_check}.h\""
+    printf "%s" "$test_var" | gcc $gcc_flags >> gcc_out 2>&1 ; printf "%s" "$?" > estatus;
+    exit_status=$(cat estatus)
+    rm gcc_out
+    return "$exit_status"
+}
+
+stdlibs_compiler_gcc() {
+    test_to_check=${1:-}
+    gcc_flags="-x c -H -fsyntax-only -"
+    test_var="#include <${test_to_check}.h>"
+    printf "%s" "$test_var" | gcc $gcc_flags >> gcc_out 2>&1 ; printf "%s" "$?" > estatus;
+    exit_status=$(cat estatus)
+    rm gcc_out
+    return "$exit_status"
+}
+
+
+autodl() {
+    libs=${1:-all}
+    libset=${2:-"$REQLIBS $OPTLIBS"}
+    case "$libs" in
+        livesplit_core)
+            if [ "$dl_prog" = "wget" ]
             then
-                check_musl_version
+                wget "$livesplit_url"
+                file_name=$(echo livesplit*)
+                mkdir livesplit
+                mv "$file_name" livesplit/
+                : "$(cd livesplit; tar -xzvf "$file_name")" #currently won't work for Windows
+                SC_INCLUDE_PATH="$SC_INCLUDE_PATH:$(pwd)/livesplit/bindings"
+                SLD_LIBRARY_PATH="$SLD_LIBRARY_PATH:$(pwd)/livesplit"
+                SLIBRARY_PATH="$SLIBRARY_PATH:$(pwd)/livesplit"
+            elif [ "$dl_prog" = "curl" ]
+            then
+                curl -o "$livesplit_url" livesplit.tar.gzip
+                mkdir livesplit
+                mv livesplit.tar.gzip livesplit/ #*nixen specific
+                : "$(cd livesplit; tar -xzvf "$file_name")" #currently won't work for windows
+                SC_INCLUDE_PATH="$SC_INCLUDE_PATH:$(pwd)/livesplit/bindings"
+                SLD_LIBRARY_PATH="$SLD_LIBRARY_PATH:$(pwd)/livesplit"
+                SLIBRARY_PATH="$SLIBRARY_PATH:$(pwd)/livesplit"
             fi
             ;;
-
-        bsd)
-            0
+        b64)
+            t_USE_GIT="$USE_GIT"
+            if [ "$USE_GIT" -eq 2 ] && [ "$HAS_GIT" -eq 0 ]
+            then
+                while 0
+                do
+                    printf "Do you use to use git to download the base64 library [y/N]? "
+                    read -r r_t_USE_GIT
+                    original_r_t_USE_GIT="$r_t_USE_GIT"
+                    slice_output="%!@(*(..."
+                    slice_string "$r_t_USE_GIT" 0 1 0
+                    t_USE_GIT="$slice_output"
+                    USE_GIT=$(echo "$t_USE_GIT" | tr '[:upper:]' '[:lower:]')
+                    if [ "$t_USE_GIT" = "y" ]
+                    then
+                        USE_GIT=0 #use git
+                        break
+                    elif [ "$t_USE_GIT" = "n" ]
+                    then
+                        USE_GIT=1 #don't use git
+                        break
+                    elif [ "$t_USE_GIT" = "%!@(*(..." ]
+                    then
+                        printf "ERROR: STRING SLICING IS FAILING, PLEASE REPORT!\\n" 1>&2
+                        printf "Original raw_input: %s\\n" "$original_r_t_USE_GIT" 1>&2
+                        printf "Sliced Output: %s\\n" "$r_t_USE_GIT" 1>&2
+                        printf "Lowercase Output: %s\\n" "$t_USE_GIT" 1>&2
+                        printf "I, for one, welcome our non-string splitting overlords, preventing DLing is fun!!\\n" 1>&2
+                        t_USE_GIT=1
+                        break
+                    else
+                        printf "Unknown Input! Try again. \\n"
+                    fi
+                done
+            fi
+            if [ "$t_USE_GIT" -eq 0 ] && [ "$HAS_GIT" -eq 0 ]
+            then
+                printf "Clonging Brad Conte's base64 libraries!\\n"
+                git clone https://github.com/B-Con/crypto-algorithms.git opensplit-core/deps/crypto-algorithms
+            elif [ "$dl_prog" = "wget" ]
+            then
+                wget https://github.com/B-Con/crypto-algorithms/archive/master.zip
+                cp master.zip opensplit-core/deps/
+                command -v unzip
+                if [ $? -eq 0 ]
+                then
+                    : $(cd opensplit-core/deps; unzip master.zip; rm master.zip; mv crypto-algorithms-master/ crypto-algorithms/)
+                else
+                    rm master.zip
+                    echo "ERr"
+                    exit 1
+                fi
+            elif [ "$dl_prog" = "curl" ]
+            then
+                curl -o https://github.com/B-Con/crypto-algorithms/archive/master.zip master.zip
+                cp master.zip opensplit-core/deps/
+                : $(cd opensplit-core/deps; unzip master.zip; rm master.zip; mv crypto-algorithms-master/ crypto-algorithms/)
+            fi
             ;;
-        osx)
-            0
+        criterion)
+            if [ $C89_COMPAT -eq 1 ]
+            then
+                command -v unzip
+                [ "$dl_prog" = "wget" ] && :
+                [ "$dl_prog" = "curl" ] && :
+            fi
+            ;;
+        marked)
+            IFS=$(printf ' \n\t')
+            for marked in $libraries_to_download
+            do
+                autodl "$marked"
+            done
+            IFS="$IFS_DEFAULT"
+            ;;
+        all)
+            IFS=$(printf ' \n\t')
+            for req in $libset
+            do
+                autodl "$req"
+            done
+            IFS="$IFS_DEFAULT"
             ;;
     esac
+
 }
 
-function check_system {
+find_required_libs() {
+    IFS=$(printf ' \n\t')
+    case "$COMPILER" in
+        gcc|clang|cc)
+            for req in $REQLIBS
+            do
+                printf "Checking for %s ...." "$req"
+                if optlibs_compiler_gcc "$req"
+                then
+                    printf " Found!\\n"
+                else
+                    if [ "$AUTO_INSTALL" -eq 0 ]
+                    then
+                        printf " Not Found...Marking for Auto-Install!\\n"
+                        libraries_to_download="$libraries_to_download $req"
+                    else
+                        printf " Not Found!\\n"
+                        if [ "opensplit-core/deps/crypto_algorithms/base64" = "$req" ]
+                        then
+                            printf "Please run clone_dependencies.sh to setup!\\n"
+                        fi
+                        exit 1
+                    fi
+                fi
+            done
+            ;;
+        tcc)
+            printf "Not Supported!\\n"
+            exit 1
+            ;;
+        msvc)
+            printf "Not Supported!\\n"
+            exit 1
+            ;;
+    esac
+    IFS=$IFS_DEFAULT
+}
+
+find_optional_libs() {
+    IFS=$(printf ' \n\t')
+    case "$COMPILER" in
+        gcc|clang|cc)
+            printf "Checking for optional libraries...\\r"
+            for opt in $OPTLIBS
+            do
+                printf "Checking for %s ...." "$opt"
+                if [ "$opt" = "criterion" ]
+                then
+                    if criterion_compiler_gcc "$opt"
+                    then
+                        printf " Found!\\n"
+                    else
+                        if [ "$AUTO_INSTALL" -eq 0 ]
+                        then
+                            printf " Not Found...Marking for Auto-Install!\\n"
+                            libraries_to_download="$libraries_to_download $opt"
+                        else
+                            printf " Not Found! Disabling tests!\\n"
+                            RUN_TESTS=1
+                        fi
+                    fi
+                else
+                    if optlibs_compiler_gcc "$opt"
+                    then
+                        printf " Found!\\n"
+                    else
+                        if [ "$AUTO_INSTALL" -eq 0 ]
+                        then
+                            printf " Not Found...Marking for Auto-Install!\\n"
+                            libraries_to_download="$libraries_to_download $opt"
+                        else
+                            printf " Not Found!\\n"
+                        fi
+                    fi
+                fi
+            done
+            ;;
+        tcc)
+            printf "Not Supported!\\n"
+            exit 1
+            ;;
+        msvc)
+            printf "Not Supported!\\n"
+            exit 1
+            ;;
+    esac
+    IFS=$IFS_DEFAULT
+}
+
+find_std_libs() {
+    # Work on this later, use the compiler as found in find_c_compiler
+    IFS=$(printf ' \n\t')
+    case "$COMPILER" in
+        gcc|clang|cc)
+            for std in $STDLIBS
+            do
+                if ([ "$std" = "string" ] || [ "$std" = "strings" ]) && [ $HAS_STRING_STD -eq 2 ]
+                then
+                    printf "Checking for %s ...." "$std"
+                elif ([ "$std" = "string" ] || [ "$std" = "strings" ]) && [ $HAS_STRING_STD -eq 1 ]
+                then
+                    printf "Checking for %s instead ...." "$std"
+                elif ([ "$std" = "string" ] || [ "$std" = "strings" ]) && [ $HAS_STRING_STD -eq 0 ]
+                then
+                    :
+                elif ([ "$std" = "stdbool" ] && [ "$C89_COMPAT" -eq 0 ])
+                then
+                    printf "Not Checking for stdbool, using bool.h instead\\n"
+                else
+                    printf "Checking for %s ...." "$std"
+                fi
+                if stdlibs_compiler_gcc "$std"
+                then
+                    if ([ "$std" = "string" ] || [ "$std" = "strings" ]) && [ "$HAS_STRING_STD" -ne 0 ]
+                    then
+                        HAS_STRING_STD=0
+                        printf " Found!\\n"
+                    elif ([ "$std" != "string" ] && [ "$std" != "strings" ])
+                    then
+                        if [ "$std" != "stdbool" ] || [ "$C89_COMPAT" -eq 1 ]
+                        then
+                            printf " Found!\\n"
+                        elif [ "$C89_COMPAT" -eq 0 ]
+                        then
+                            :
+                        fi
+                    fi
+                elif ([ "$std" != "stdbool" ] && [ "$C89_COMPAT" -ne 0 ])
+                then
+                    if [ "$std" = "string" ] || [ "$std" = "strings" ]
+                    then
+                        printf " Not Found!\\n"
+                        HAS_STRING_STD=1
+                    elif [ "$std" = "stdbool" ]
+                    then
+                        printf "Falling back to bool.h"
+                        C89_COMPAT=1
+                    else
+                        printf " Not Found!\\n"
+                    fi
+                fi
+            done
+            ;;
+        tcc)
+            printf "Not Supported!\\n"
+            exit 1
+            ;;
+        msvc)
+            printf "Not Supported!\\n"
+            exit 1
+            ;;
+    esac
+    IFS=$IFS_DEFAULT
+}
+
+check_system() {
     # CHECK THE SYSTEM
     linux=$(uname -s)
-    printf "Checking OS ...... \r"
-    if [ "$linux" == "Linux" ]
+    printf "Checking OS ...... \\r"
+    if [ "$linux" = "Linux" ]
     then
-        printf "Operating System: Linux\n"
-        printf "Checking Kernel ...... \r"
+        printf "Operating System: Linux\\n"
+        printf "Checking Kernel ...... \\r"
         kernel=$(uname -r)
         #This is checking to see if process_vm_readv support exists within your kernel
-        if [ "${kernel:0:1}" -gt 3 ] || ( [ "${kernel:0:1}" -eq 3 ] && [ "${kernel:2:1}" -gt 2 ])
-        then
-            printf "Kernel Version: ${kernel}\n"
+        slice_output="."
+        slice_string "$kernel" 0 1 0
+        kernel_major=$slice_output
 
-            # This is literally just checking if process_vm_readv support exists with musl's libc
-            find_c_compiler
-            if [ ${LIBC} == "auto"]
-            then
-                lower_linux=$(echo ${linux} | tr '[:upper:]' '[:lower:]')
-                check_libc "${lower_linux}"
-                true; find_std_libs "$?"
-            fi
-            libc="${LIBC}"
+        slice_output="."
+        slice_string "$kernel" 2 1 0
+        kernel_minor=$slice_output
+
+        if [ "$kernel_major" -gt 3 ] || ( [ "$kernel_major" -eq 3 ] && [ "$kernel_minor" -gt 2 ])
+        then
+            printf "Kernel Version: %s\\n" "${kernel}"
+
+            PROCESS_VM_READV=2
         fi
         INTERFACE_MODE="${linux}"
     else
@@ -379,19 +758,143 @@ function check_system {
     printf ""
 }
 
+# Check for download stuff
+dl_check () {
+    if command -v git >/dev/null 2>&1
+    then
+        HAS_GIT=0
+        USE_GIT=2
+        while 0
+        do
+            printf "Do you use to use git (Yes, No, Prompt) [y/n/P]?: "
+            read -r r_USE_GIT
+            original_r_USE_GIT="$r_USE_GIT"
+            slice_output="%!@(*(..."
+            slice_string "$r_USE_GIT" 0 1 0
+            r_USE_GIT="$slice_output"
+            USE_GIT=$(echo "$r_USE_GIT" | tr '[:upper:]' '[:lower:]')
+            if [ "$USE_GIT" = "y" ]
+            then
+                USE_GIT=0 #use git
+                break
+            elif [ "$USE_GIT" = "n" ]
+            then
+                USE_GIT=1 #don't use git
+                break
+            elif [ "$USE_GIT" = "p" ]
+            then
+                USE_GIT=2 #prompt
+                break
+            elif [ "$USE_GIT" = "%!@(*(..." ]
+            then
+                printf "ERROR: STRING SLICING IS FAILING, PLEASE REPORT!\\n" 1>&2
+                printf "Original raw_input: %s\\n" "$original_r_USE_GIT" 1>&2
+                printf "Sliced Output: %s\\n" "$r_USE_GIT" 1>&2
+                printf "Lowercase Output: %s\\n" "$USE_GIT" 1>&2
+                printf "I, for one, welcome our non-string splitting overlords!\\n" 1>&2
+                exit 1
+            else
+                printf "Unknown Input! Try again. \\n"
+            fi
+        done
+    fi
+    if command -v wget >/dev/null 2>&1
+    then
+        dl_prog="wget"
+    elif [ "$dl_prog" = "unknown" ] && command -v curl >/dev/null 2>&1
+    then
+        dl_prog="curl"
+    else
+        printf "Can't find Auto-Dowloading stuff."
+        printf "Making sure Auto-Downloading is off.\\n"
+        AUTO_INSTALL=1
+    fi
+}
+
+# For Checking if the shell environment is "sane" (mainly for utilities)
+environment_check () {
+    output=""
+    set +eu
+    printf "Running Sanity Checks...\\n"
+    if [ "$AUTO_INSTALL" -eq 0 ]
+    then
+        printf "Checking Auto-Downloading\\n"
+        dl_check
+        printf "Done! "
+        #Check new value of auto-install
+        if [ "$AUTO_INSTALL" -eq 0 ]
+        then
+            if [ "$HAS_GIT" -eq 0 ] && [ "$USE_GIT" -eq 0 ]
+            then
+                output="Using git, and falling back to"
+                [ "$dl_prog" = "wget" ] && output="$output wget"
+                [ "$dl_prog" = "curl" ] && output="$output curl"
+            elif [ "$HAS_GIT" -eq 0 ] && [ "$USE_GIT" -eq 2 ]
+            then
+                output="Prompting for git, and falling back to "
+                [ "$dl_prog" = "wget" ] && output="$output wget"
+                [ "$dl_prog" = "curl" ] && output="$output curl"
+            elif [ "$dl_prog" = "wget" ]
+            then
+                output="Using wget!"
+            elif [ "$dl_prog" = "curl" ]
+            then
+                output="Using curl!"
+            fi
+        else
+            output="Auto-Downloading has been disabled!"
+        fi
+        printf "%s\\n" "$output"
+    fi
+    set -eu
+}
+
+disable_autodl () {
+    if [ "$AUTO_INSTALL" -eq 0 ]
+    then
+        printf "Disabling Auto-Downloading because Auto-DL functionality isn't complete.\\n"
+        AUTO_INSTALL=1
+    fi
+}
+
 command_line_parse "$@"
+disable_autodl
+environment_check
 
 # AUTODETECT MODE BEGIN
-if [ "$INTERFACE_MODE" == "Auto" ]
+if [ "$INTERFACE_MODE" = "Auto" ]
 then
     # Autodetect which mode to use
     check_system
+    find_c_compiler
+    lowercased_os=$(echo "$INTERFACE_MODE" | tr '[:upper:]' '[:lower:]')
+    check_libc "$lowercased_os"
+    find_std_libs
+    find_required_libs
+    find_optional_libs
 fi
 # AUTODETECT MODE END
 
 case $INTERFACE_MODE in
     Linux)
-        # . ".configure_linux"
+        livesplit_url=$(printf "%s" "$livesplit_url" | sed 's/OS/unknown-linux/')
+        livesplit_url=$(printf "%s" "$livesplit_url" | sed "s,ARCH,$ARCH,")
+        if [ "$LIBC" = "musl" ]
+        then
+            livesplit_url=$(printf "%s" "$livesplit_url" | sed 's/LIBC/musl/')
+        else
+            if [ "$COMPILER" != "gcc" ]
+            then
+                livesplit_url=$(printf "%s" "$livesplit_url" | sed "s,LIBC,$COMPILER,")
+            else
+                livesplit_url=$(printf "%s" "$livesplit_url" | sed 's/LIBC/gnu/')
+            fi
+        fi
+        if [ "$AUTO_INSTALL" -eq 0 ]
+        then
+            autodl "marked"
+        fi
+        . "./.configure_linux"
         ;;
     Windows)
         # . ".configure_windows"
@@ -409,6 +912,6 @@ case $INTERFACE_MODE in
         # . ".configure_posix"
         ;;
     Auto)
-        printf "There was an error in determining your Operating System. Please use --os_type=<os> or -o=<os>!\n"
+        printf "There was an error in determining your Operating System. Please use --os_type=<os> or -o=<os>!\\n"
         ;;
 esac
