@@ -29,31 +29,26 @@ implemented_libc="$implemented"
 SLD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 SLIBRARY_PATH="${LIBRARY_PATH:-}"
 SC_INCLUDE_PATH="${C_INCLUDE_PATH:-}"
-STDLIBS="stdio stdbool string strings stdlib stddef stdint"
+STDLIBS="stdio stdbool string strings stdlib stddef stdint unistd sys/uio sys/types"
 OPTLIBS="criterion "
+OPTLIBS_S="criterion/criterion "
 REQLIBS="livesplit_core opensplit-core/deps/crypto-algorithms/base64"
+REQLIBS_S="livesplit_core"
 HAS_STRING_STD=2 #Default is unknown
-COMPILER=cc
+COMPILER="${CC:-cc}"
 QUIET_MODE=1 #Off By Default
 C89_COMPAT=1 #Off by Default
 MUSL_GCC_COMPAT=1 #Off by default
 PROCESS_VM_READV=1 #Off by default
 
-# LIB_SCAN=0 #On by Default
-AUTO_INSTALL=1 #Off by default
 INSTALL_DIR="/usr/local/" #/usr/local/ by default
 COMPAT_MODE="static_core" #static livesplit_core by default
-LIB_DIR="${INSTALL_DIR}/lib/" #/usr/local/lib/ by default
-INCLUDES_DIR="${INSTALL_DIR}/include/" #/usr/local/include by default
+LIB_DIR="${INSTALL_DIR}lib/" #/usr/local/lib/ by default
+INCLUDES_DIR="${INSTALL_DIR}include/" #/usr/local/include by default
 RUN_TESTS=0 #On by Default
 ARCH="i686"
 LIBC="auto"
 
-dl_prog="unknown" #Default to wget, I need to have an environment checking thing
-HAS_GIT=1 #Default has_get is set to False
-USE_GIT=1 #Default use_get is set to False, this determines if we should use git over dl_prog. 2 = use it for our own things
-livesplit_url="https://github.com/LiveSplit/livesplit-core/releases/download/v0.9.0/livesplit-core-v0.9.0-ARCH-OS-LIBC.tar.gzip"
-libraries_to_download=""
 INTERFACE_MODE=Auto #Autodetect by default.
 
 cleanup() {
@@ -189,6 +184,7 @@ command_line_parse() {
                 ;;
             --use_musl_gcc)
                 MUSL_GCC_COMPAT=0
+                COMPILER=musl-gcc
                 ;;
             --posix_only|-p)
                 INTERFACE_MODE=posix
@@ -226,22 +222,18 @@ command_line_parse() {
             --livesplit_compat=[-a-z_]*)
                 slice_string "$arg" 19 "${#arg}" 1
                 COMPAT_MODE="$slice_output"
-                printf "%s\\n" "$COMPAT_MODE"
                 ;;
             -l=[-a-z]*)
                 slice_string "$arg" 3 "${#arg}" 1
                 COMPAT_MODE="$slice_output"
-                printf "%s\\n" "$COMPAT_MODE"
                 ;;
             --os_type=[-a-z]*)
                 slice_string "$arg" 10 "${#arg}" 1
                 INTERFACE_MODE="$slice_output"
-                printf "%s\\n" "$INTERFACE_MODE\\n"
                 ;;
             -o=[-a-z]*)
                 slice_string "$arg" 3 "${#arg}" 1
                 INTERFACE_MODE="$slice_output"
-                printf "%s\\n" "$INTERFACE_MODE"
                 ;;
             --libc=[a-z]*)
                 slice_string "$arg" 7 "${#arg}" 1
@@ -336,7 +328,7 @@ find_c_compiler() {
                 break
             fi
         done
-        IFS=IFS_DEFAULT
+        IFS=$IFS_DEFAULT
         # COMPILER_SEARCH ENDS
 
         if [ "$compiler" = "cc" ]
@@ -408,7 +400,7 @@ find_c_compiler() {
                             true_cc="${old_cc}"
                         fi
                     done
-                    IFS=IFS_DEFAULT #MAKE SURE THAT IFS IS PROPERLY RESET
+                    IFS=$IFS_DEFAULT #MAKE SURE THAT IFS IS PROPERLY RESET
                     # COMPILER GET ENDS (RELIES ON NON-POSIX BASHISMS)
                     if [ "$true_cc" = "$old_cc" ]
                     then
@@ -504,27 +496,15 @@ find_optional_libs() {
                     then
                         printf " Found!\\n"
                     else
-                        if [ "$AUTO_INSTALL" -eq 0 ]
-                        then
-                            printf " Not Found...Marking for Auto-Install!\\n"
-                            libraries_to_download="$libraries_to_download $opt"
-                        else
-                            printf " Not Found! Disabling tests!\\n"
-                            RUN_TESTS=1
-                        fi
+                        printf " Not Found! Disabling tests!\\n"
+                        RUN_TESTS=1
                     fi
                 else
                     if optlibs_compiler_gcc "$opt"
                     then
                         printf " Found!\\n"
                     else
-                        if [ "$AUTO_INSTALL" -eq 0 ]
-                        then
-                            printf " Not Found...Marking for Auto-Install!\\n"
-                            libraries_to_download="$libraries_to_download $opt"
-                        else
-                            printf " Not Found!\\n"
-                        fi
+                        printf " Not Found!\\n"
                     fi
                 fi
             done
@@ -630,6 +610,8 @@ check_system() {
             printf "Kernel Version: %s\\n" "${kernel}"
 
             PROCESS_VM_READV=2
+        else
+            PROCESS_VM_READV=1
         fi
         INTERFACE_MODE="${linux}"
     else
@@ -640,63 +622,10 @@ check_system() {
 }
 
 # Check for download stuff
-dl_check () {
-    if command -v git >/dev/null 2>&1
-    then
-        HAS_GIT=0
-        USE_GIT=2
-        while 0
-        do
-            printf "Do you use to use git (Yes, No, Prompt) [y/n/P]?: "
-            read -r r_USE_GIT
-            original_r_USE_GIT="$r_USE_GIT"
-            slice_output="%!@(*(..."
-            slice_string "$r_USE_GIT" 0 1 0
-            r_USE_GIT="$slice_output"
-            USE_GIT=$(echo "$r_USE_GIT" | tr '[:upper:]' '[:lower:]')
-            if [ "$USE_GIT" = "y" ]
-            then
-                USE_GIT=0 #use git
-                break
-            elif [ "$USE_GIT" = "n" ]
-            then
-                USE_GIT=1 #don't use git
-                break
-            elif [ "$USE_GIT" = "p" ]
-            then
-                USE_GIT=2 #prompt
-                break
-            elif [ "$USE_GIT" = "%!@(*(..." ]
-            then
-                printf "ERROR: STRING SLICING IS FAILING, PLEASE REPORT!\\n" 1>&2
-                printf "Original raw_input: %s\\n" "$original_r_USE_GIT" 1>&2
-                printf "Sliced Output: %s\\n" "$r_USE_GIT" 1>&2
-                printf "Lowercase Output: %s\\n" "$USE_GIT" 1>&2
-                printf "I, for one, welcome our non-string splitting overlords!\\n" 1>&2
-                exit 1
-            else
-                printf "Unknown Input! Try again. \\n"
-            fi
-        done
-    fi
-    if command -v wget >/dev/null 2>&1
-    then
-        dl_prog="wget"
-    elif [ "$dl_prog" = "unknown" ] && command -v curl >/dev/null 2>&1
-    then
-        dl_prog="curl"
-    else
-        printf "Can't find Auto-Dowloading stuff."
-        printf "Making sure Auto-Downloading is off.\\n"
-        AUTO_INSTALL=1
-    fi
-}
-
 # For Checking if the shell environment is "sane" (mainly for utilities)
 environment_check () {
-    output=""
     set +eu
-    printf "Runnin$ Sanity Checks..."
+    printf "Running Sanity Checks..."
     printf "Done\\n"
     set -eu
 }
@@ -709,48 +638,53 @@ if [ "$INTERFACE_MODE" = "Auto" ]
 then
     # Autodetect which mode to use
     check_system
+fi
+if [ "$COMPILER" = "cc" ]
+then
     find_c_compiler
-    lowercased_os=$(echo "$INTERFACE_MODE" | tr '[:upper:]' '[:lower:]')
-    check_libc "$lowercased_os"
-    find_std_libs
-    find_required_libs
-    find_optional_libs
+fi
+if [ "$LIBC" = "auto" ] || [ "$LIBC" = "Auto" ]
+then
+    if [ "$INTERFACE_MODE" = "linux_old" ]
+    then
+        check_libc "linux"
+    else
+        lowercased_os=$(echo "$INTERFACE_MODE" | tr '[:upper:]' '[:lower:]')
+        check_libc "$lowercased_os"
+    fi
 fi
 # AUTODETECT MODE END
 
+# Requirement Checking
+find_std_libs
+find_required_libs
+find_optional_libs
+
 case $INTERFACE_MODE in
-    Linux)
-        livesplit_url=$(printf "%s" "$livesplit_url" | sed 's/OS/unknown-linux/')
-        livesplit_url=$(printf "%s" "$livesplit_url" | sed "s,ARCH,$ARCH,")
-        if [ "$LIBC" = "musl" ]
-        then
-            livesplit_url=$(printf "%s" "$livesplit_url" | sed 's/LIBC/musl/')
-        else
-            if [ "$COMPILER" != "gcc" ]
-            then
-                livesplit_url=$(printf "%s" "$livesplit_url" | sed "s,LIBC,$COMPILER,")
-            else
-                livesplit_url=$(printf "%s" "$livesplit_url" | sed 's/LIBC/gnu/')
-            fi
-        fi
+    [lL]inux|[lL]inux_old)
         . "./.configure_linux"
         ;;
-    Windows)
+    [wW]indows)
         # . ".configure_windows"
         ;;
-    OSX)
+    OSX|osx)
         # . ".configure_osx"
         ;;
-    FreeBSD)
+    [fF]reeBSD|[Ff]reebsd)
         # . ".configure_bsd"
         ;;
     nixen)
         # . ".configure_nixen"
         ;;
-    POSIX)
+    POSIX|posix)
         # . ".configure_posix"
         ;;
-    Auto)
+    p[oO][sS][iI][xX])
+        printf "\\nWhy do you enjoy hurting yourself?\\n"
+        printf "Also use the --posix_only/-p switch.\\n"
+        ;;
+    Auto|*)
         printf "There was an error in determining your Operating System. Please use --os_type=<os> or -o=<os>!\\n"
+        # printf "$INTERFACE_MODE \\n"
         ;;
 esac

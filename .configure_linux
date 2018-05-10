@@ -1,0 +1,137 @@
+#!/bin/sh
+
+process_vm_script='#define _GNU_SOURCE
+#include <sys/uio.h>
+int main(void){struct iovec lo[1]={{.iov_base=100,.iov_len=100}};struct iovec ro[1]={{.iov_base=100,.iov_len=100}};process_vm_readv(1, lo, 1, ro, 1, 0);return 0;}'
+
+conf_linux_check_process_vm () {
+    case "$COMPILER" in
+        gcc|clang|cc|musl_gcc)
+            printf "%s" "$process_vm_script" | gcc -x c -H -fsyntax-only - >> gcc_out 2>&1 ; printf "%s" "$?" > estatus;
+            exit_status=$(cat estatus)
+            if [ "$exit_status" -ne 0 ]
+            then
+                printf "Does Not Exist!\\n"
+                PROCESS_VM_READV=1
+            else
+                printf "Found!\\n"
+                PROCESS_VM_READV=0
+            fi
+            ;;
+        tcc)
+            ;;
+    esac
+}
+
+printf "\nBeggining Linux Specific Configuration\\n"
+if ([ "$INTERFACE_MODE" = "linux" ] || [ "$INTERFACE_MODE" = "Linux" ])  && [ "$PROCESS_VM_READV" -ne 1 ]
+then
+    printf "Checking if process_vm_readv exists ... "
+    conf_linux_check_process_vm
+else
+    printf "Unable to use process_vm_readv ... skipping check\\n"
+fi
+
+## Makefile Assembly Begins
+printf "Assembling Makefile ...\\n"
+end_of_makefile='clean:
+	rm *.o
+
+fullclean: clean
+	rm *.so
+
+.SUFFIXES: .c .o
+.c.o:
+	$(CC) $(CFLAGS) $(DEBUG) -c $<'
+
+makefile='.POSIX:
+.SUFFIXES:
+LIBFOLDER = opensplit_core
+OUTPUT = libopensplit_core.so'
+
+printf "Setting Makefile CC ..."
+makefile="${makefile}
+CC=${COMPILER}"
+printf "Done\\n"
+
+printf "Setting Makefile Paths..."
+makefile="${makefile}
+LD_LIBRARY_PATH=\"${SLD_LIBRARY_PATH:-}\"
+LIBRARY_PATH=\"${SLIBRARY_PATH:-}\"
+C_INCLUDE_PATH=\"${SC_INCLUDE_PATH:-}\""
+printf "Done\\n"
+
+printf "Setting up flags....\\n"
+Sflags="-lm "
+# COMPILER_SEARCH BEGINS
+IFS=$(printf ' \n\t')
+for lib in ${REQLIBS_S}
+do
+    Sflags="${Sflags} -l""$lib"
+done
+IFS=$IFS_DEFAULT
+
+makefile="${makefile}
+LDLIBS = ${Sflags}
+CFLAGS = -Wall -Wpedantic -Wextra -O0 -D_XOPEN_SOURCE=700 -fpic
+LDCHECKFLAGS = -g
+LDFLAGS = -g -shared
+PREFIX = ${INSTALL_DIR}"
+printf "Done\\n"
+
+printf "Populating and Creating Targets ... "
+if [ "$RUN_TESTS" -eq 0 ]
+then
+makefile="${makefile}
+all: opensplit_core check"
+else
+makefile="${makefile}
+all: opensplit_core"
+fi
+makefile="${makefile}
+opensplit_core: opensplit-core/deps/crypto-algorithms/base64.o opensplit-core/livesplit_hooks/livesplit.o opensplit-core/opensplit_core.o
+	"'$(CC) $(LDFLAGS) opensplit_core.o livesplit.o base64.o -o $(OUTPUT) $(LDLIBS)'
+
+if [ "$RUN_TESTS" -eq 0 ]
+then
+    makefile="${makefile}
+check: tests/test_core.o opensplit-core/deps/crypto-algorithms/base64.o opensplit-core/livesplit_hooks/livesplit.o opensplit-core/opensplit_core.o
+	"'$(CC) $(LDCHECKFLAGS) opensplit_core.o livesplit.o base64.o test_core.o -o TEST_$(OUTPUT) $(LDLIBS) -lcriterion'"
+	./TEST_"'$(OUTPUT)'
+    makefile="${makefile}
+tests/test_core.o: tests/test_core.c opensplit-core/opensplit_core.o opensplit-core/deps/crypto-algorithms/base64.o"
+
+fi
+makefile="${makefile}
+#b64 
+opensplit-core/deps/crypto-algorithms/base64.o: opensplit-core/deps/crypto-algorithms/base64.c opensplit-core/deps/crypto-algorithms/base64.h
+
+#opensplit components 
+opensplit-core/livesplit_hooks/livesplit.o: opensplit-core/deps/crypto-algorithms/base64.o opensplit-core/livesplit_hooks/livesplit.h opensplit-core/livesplit_hooks/livesplit.c 
+
+opensplit-core/opensplit_core.o: opensplit-core/opensplit_core.h opensplit-core/opensplit_core.c opensplit-core/livesplit_hooks/livesplit.h opensplit-core/deps/crypto-algorithms/base64.o"
+
+makefile="${makefile}
+install:
+	mkdir ${INCLUDES_DIR}\$(LIBFOLDER)
+	cp opensplit-core/opensplit_core.h ${INCLUDES_DIR}\$(LIBFOLDER)
+	cp opensplit-core/livesplit_hooks/livesplit.h ${INCLUDES_DIR}\$(LIBFOLDER)
+	cp \$(OUTPUT) ${LIB_DIR}
+	ldconfig
+
+uninstall:
+	rm ${INCLUDES_DIR}\$(LIBFOLDER)/opensplit_core.h 
+	rm ${INCLUDES_DIR}\$(LIBFOLDER)/livesplit.h $
+	rmdir ${INCLUDES_DIR}\$(LIBFOLDER)
+	rm ${LIB_DIR}
+	ldconfig
+"
+printf "Done\\n"
+
+printf "Stitching Makefile ... "
+makefile="${makefile}
+${end_of_makefile}"
+printf "%s" "$makefile" > Makefile.auto
+printf "DONE\\n"
+
+# Makefile Assembly Ends
