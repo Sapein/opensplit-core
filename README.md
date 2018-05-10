@@ -13,6 +13,7 @@ opensplit-core
 1. Clone the repository with `git clone https://github.com/Sapein/opensplit-core.git`
 2. Setup livesplit-core.
 3. Install Brad Conte's Crypto Algorithms (use the clone_dependencies.sh script or just clone it into opensplit-core/deps/crypto-algorithms)
+4. Run `make all` or just do `configure && make && sudo make install`
 
 ### Development Setup
 [TO BE WRITTEN]
@@ -38,3 +39,9 @@ opensplit-core
 
 #### Why do you use an insecure Crypto library?  
    Because I don't actually use it for the actual cryptography part, I just use it for the base64 portion of it. I would include it directly, or use a submodule, however due to the lack of actual license, I've decided it best to wait until I can either get a license from the Author, or just end up writing one on my own. However for the time being that library works.
+
+#### Why is the configure script in bash?  
+   Simple, I wanted to create a handmade configure script, so I did. I don't recommend actually doing it yourself though...
+
+#### What is with the .configure\_[system] files?  
+   Well, they go with the .configure script. It's a neat little way to keep the system configuration in their own little files. Modularization is kinda needed at times.
